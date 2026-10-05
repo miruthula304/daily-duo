@@ -1,0 +1,5 @@
+node_modules/
+daily-duo.sqlite
+daily-duo.sqlite-shm
+daily-duo.sqlite-wal
+.env

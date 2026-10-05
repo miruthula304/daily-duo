@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#111827">
+<title>Daily Duo</title>
+<style>
+:root{--bg:#f5f7fb;--card:#fff;--text:#172033;--muted:#6b7280;--line:#e5e7eb;--accent:#4f46e5;--soft:#eef2ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px system-ui,-apple-system,Segoe UI,sans-serif}
+button,input{font:inherit}.wrap{max-width:760px;margin:auto;padding:18px 14px 40px}
+header{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:16px}
+h1{font-size:26px;margin:0}.muted{color:var(--muted);font-size:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;margin:12px 0}
+.top-actions{display:flex;gap:8px;flex-wrap:wrap}.btn{border:0;border-radius:11px;padding:10px 13px;background:#eef0f5;cursor:pointer}.primary{background:#111827;color:white}
+.cal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}.month{font-weight:750;font-size:18px}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}.dow{text-align:center;color:var(--muted);font-size:12px;padding:5px}
+.day{min-height:45px;border:0;background:transparent;border-radius:10px;cursor:pointer}.day:hover{background:#f1f3f8}.day.sel{background:var(--soft);outline:2px solid #c7d2fe}.day .n{display:block;font-weight:650}.day .dot{display:block;font-size:10px;color:var(--accent);min-height:12px}
+.progress{height:10px;background:#e9edf3;border-radius:10px;overflow:hidden}.bar{height:100%;background:var(--accent);width:0;transition:.2s}
+.task{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:11px 0;border-bottom:1px solid var(--line)}.task:last-child{border-bottom:0}
+.task-title{grid-column:1/-1;font-weight:600;margin-bottom:1px}.personbox{display:flex;align-items:center;gap:8px;padding:10px;border:1px solid var(--line);border-radius:12px}
+.personbox input{width:20px;height:20px;accent-color:var(--accent)}.done{text-decoration:line-through;color:#9ca3af}
+.add{display:flex;gap:8px;margin-top:12px}.add input,.settings input{min-width:0;flex:1;border:1px solid var(--line);border-radius:11px;padding:10px 12px}
+.settings{display:grid;grid-template-columns:1fr 1fr;gap:8px}.settings input{width:100%}
+.empty{text-align:center;padding:35px 10px}.hidden{display:none}
+@media(max-width:520px){.task{grid-template-columns:1fr 1fr}.settings{grid-template-columns:1fr}.day{min-height:42px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<div><h1 id="title">Daily Duo</h1><div class="muted">Shared daily checklist</div></div>
+<div class="top-actions"><button class="btn" id="share">Share</button><button class="btn" id="settingsBtn">⚙</button></div>
+</header>
+
+<div id="setup" class="card">
+<h2>Create your shared room</h2><p class="muted">Create once, then send the generated link to your friend.</p>
+<div class="settings"><input id="newName" placeholder="Room name" value="Daily Duo"><input id="newP1" placeholder="Your name" value="Me"><input id="newP2" placeholder="Friend's name" value="Friend"></div>
+<button class="btn primary" id="create" style="margin-top:10px;width:100%">Create shared checklist</button>
+</div>
+
+<main id="app" class="hidden">
+<div class="card">
+<div class="cal-head"><button class="btn" id="prev">‹</button><div class="month" id="month"></div><button class="btn" id="next">›</button></div>
+<div class="cal" id="calendar"></div>
+</div>
+
+<div class="card">
+<div class="cal-head"><div><strong id="selectedLabel"></strong><div class="muted" id="people"></div></div><div id="percent">0%</div></div>
+<div class="progress"><div class="bar" id="bar"></div></div>
+</div>
+
+<div class="card">
+<div id="tasks"></div>
+<div class="add"><input id="newTask" placeholder="Add a recurring task"><button class="btn primary" id="addTask">Add</button></div>
+</div>
+
+<div class="card hidden" id="settings">
+<div class="settings"><input id="roomName"><input id="person1"><input id="person2"></div>
+<button class="btn primary" id="saveSettings" style="margin-top:10px">Save</button>
+</div>
+
+<div class="card"><strong>How it works</strong><p class="muted">Tasks repeat automatically every calendar day. Each person's checkmarks are stored separately, and past days remain in the calendar. Share the same link with your friend.</p></div>
+</main>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+let roomId=new URLSearchParams(location.search).get("room"), room=null, checks={}, selected=new Date(), monthCursor=new Date();
+const iso=d=>{const x=new Date(d);return x.toISOString().slice(0,10)};
+const nice=d=>new Intl.DateTimeFormat(undefined,{weekday:"long",day:"numeric",month:"long",year:"numeric"}).format(d);
+async function api(url,opt={}){const r=await fetch(url,{headers:{"Content-Type":"application/json"},...opt});if(!r.ok)throw Error((await r.json()).error||"Request failed");return r.json()}
+async function init(){
+ if(!roomId){$("setup").classList.remove("hidden");return}
+ try{const data=await api("/api/rooms/"+roomId);room=data.room;room.tasks=data.tasks;$("setup").classList.add("hidden");$("app").classList.remove("hidden");render();await loadDay()}catch(e){alert("This shared link is invalid or the room no longer exists.");}
+}
+function render(){
+ $("title").textContent=room.name;$("roomName").value=room.name;$("person1").value=room.person1;$("person2").value=room.person2;
+ $("month").textContent=new Intl.DateTimeFormat(undefined,{month:"long",year:"numeric"}).format(monthCursor);
+ const first=new Date(monthCursor.getFullYear(),monthCursor.getMonth(),1), start=(first.getDay()+6)%7;
+ const days=new Date(monthCursor.getFullYear(),monthCursor.getMonth()+1,0).getDate();
+ $("calendar").innerHTML=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(x=>`<div class="dow">${x}</div>`).join("");
+ for(let i=0;i<start;i++)$("calendar").insertAdjacentHTML("beforeend","<div></div>");
+ for(let n=1;n<=days;n++){const d=new Date(monthCursor.getFullYear(),monthCursor.getMonth(),n),k=iso(d);const b=document.createElement("button");b.className="day "+(k===iso(selected)?"sel":"");b.innerHTML=`<span class="n">${n}</span><span class="dot">•</span>`;b.onclick=async()=>{selected=d;await loadDay();render()};$("calendar").appendChild(b)}
+ $("selectedLabel").textContent=nice(selected);$("people").textContent=room.person1+" & "+room.person2;
+ renderTasks();
+}
+async function loadDay(){const x=await api(`/api/rooms/${roomId}/day/${iso(selected)}`);checks={};x.checks.forEach(c=>checks[c.task_id+"-"+c.person]=!!c.done);renderTasks()}
+function renderTasks(){
+ const el=$("tasks");el.innerHTML="";
+ if(!room.tasks.length){el.innerHTML='<div class="empty muted">No tasks yet.</div>';return}
+ let total=room.tasks.length*2,done=0;
+ room.tasks.forEach(t=>{
+  const a=!!checks[t.id+"-1"],b=!!checks[t.id+"-2"];if(a)done++;if(b)done++;
+  const row=document.createElement("div");row.className="task";
+  row.innerHTML=`<div class="task-title ${a&&b?"done":""}">${escapeHtml(t.text)}</div>
+  <label class="personbox ${a?"done":""}"><input type="checkbox" ${a?"checked":""}>${escapeHtml(room.person1)}</label>
+  <label class="personbox ${b?"done":""}"><input type="checkbox" ${b?"checked":""}>${escapeHtml(room.person2)}</label>`;
+  const inputs=row.querySelectorAll("input");inputs[0].onchange=()=>setCheck(t.id,1,inputs[0].checked);inputs[1].onchange=()=>setCheck(t.id,2,inputs[1].checked);
+  el.appendChild(row);
+ });
+ const p=total?Math.round(done/total*100):0;$("percent").textContent=p+"%";$("bar").style.width=p+"%";
+}
+async function setCheck(taskId,person,done){checks[taskId+"-"+person]=done;renderTasks();try{await api(`/api/rooms/${roomId}/check`,{method:"POST",body:JSON.stringify({date:iso(selected),taskId,person,done})})}catch(e){alert("Could not save. Check your connection.");}}
+function escapeHtml(s){return s.replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
+$("create").onclick=async()=>{const x=await api("/api/rooms",{method:"POST",body:JSON.stringify({name:$("newName").value,person1:$("newP1").value,person2:$("newP2").value})});location.href="?room="+x.id};
+$("addTask").onclick=async()=>{const text=$("newTask").value.trim();if(!text)return;const t=await api(`/api/rooms/${roomId}/tasks`,{method:"POST",body:JSON.stringify({text})});room.tasks.push(t);$("newTask").value="";renderTasks()};
+$("prev").onclick=()=>{monthCursor=new Date(monthCursor.getFullYear(),monthCursor.getMonth()-1,1);render()};
+$("next").onclick=()=>{monthCursor=new Date(monthCursor.getFullYear(),monthCursor.getMonth()+1,1);render()};
+$("share").onclick=()=>{const link=location.href;navigator.clipboard?.writeText(link);alert("Share this link with your friend:\\n\\n"+link)};
+$("settingsBtn").onclick=()=>$("settings").classList.toggle("hidden");
+$("saveSettings").onclick=async()=>{await api(`/api/rooms/${roomId}`,{method:"PATCH",body:JSON.stringify({name:$("roomName").value,person1:$("person1").value,person2:$("person2").value})});const x=await api("/api/rooms/"+roomId);room=x.room;room.tasks=x.tasks;render();$("settings").classList.add("hidden")};
+init();
+</script>
+</body>
+</html>

@@ -65,13 +65,13 @@ h1{font-size:26px;margin:0}.muted{color:var(--muted);font-size:14px}
 </div>
 <script>
 const $=id=>document.getElementById(id);
-let roomId=new URLSearchParams(location.search).get("room"), room=null, checks={}, selected=new Date(), monthCursor=new Date();
-const iso=d=>{const x=new Date(d);return x.toISOString().slice(0,10)};
+let roomId=new URLSearchParams(location.search).get("room"), room=null, checks={}, selected=new Date(), monthCursor=new Date(), pollTimer=null, pollBusy=false;
+const iso=d=>{const x=new Date(d);return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,"0")}-${String(x.getDate()).padStart(2,"0")}`};
 const nice=d=>new Intl.DateTimeFormat(undefined,{weekday:"long",day:"numeric",month:"long",year:"numeric"}).format(d);
 async function api(url,opt={}){const r=await fetch(url,{headers:{"Content-Type":"application/json"},...opt});if(!r.ok)throw Error((await r.json()).error||"Request failed");return r.json()}
 async function init(){
  if(!roomId){$("setup").classList.remove("hidden");return}
- try{const data=await api("/api/rooms/"+roomId);room=data.room;room.tasks=data.tasks;$("setup").classList.add("hidden");$("app").classList.remove("hidden");render();await loadDay()}catch(e){alert("This shared link is invalid or the room no longer exists.");}
+ try{const data=await api("/api/rooms/"+roomId);room=data.room;room.tasks=data.tasks;$("setup").classList.add("hidden");$("app").classList.remove("hidden");render();await loadDay();startPolling()}catch(e){alert("This shared link is invalid or the room no longer exists.");}
 }
 function render(){
  $("title").textContent=room.name;$("roomName").value=room.name;$("person1").value=room.person1;$("person2").value=room.person2;
@@ -80,11 +80,13 @@ function render(){
  const days=new Date(monthCursor.getFullYear(),monthCursor.getMonth()+1,0).getDate();
  $("calendar").innerHTML=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(x=>`<div class="dow">${x}</div>`).join("");
  for(let i=0;i<start;i++)$("calendar").insertAdjacentHTML("beforeend","<div></div>");
- for(let n=1;n<=days;n++){const d=new Date(monthCursor.getFullYear(),monthCursor.getMonth(),n),k=iso(d);const b=document.createElement("button");b.className="day "+(k===iso(selected)?"sel":"");b.innerHTML=`<span class="n">${n}</span><span class="dot">•</span>`;b.onclick=async()=>{selected=d;await loadDay();render()};$("calendar").appendChild(b)}
+ for(let n=1;n<=days;n++){const d=new Date(monthCursor.getFullYear(),monthCursor.getMonth(),n),k=iso(d);const b=document.createElement("button");b.className="day "+(k===iso(selected)?"sel":"");b.innerHTML=`<span class="n">${n}</span><span class="dot" data-date="${k}"></span>`;b.onclick=async()=>{selected=d;await loadDay();render()};$("calendar").appendChild(b)}
  $("selectedLabel").textContent=nice(selected);$("people").textContent=room.person1+" & "+room.person2;
  renderTasks();
 }
-async function loadDay(){const x=await api(`/api/rooms/${roomId}/day/${iso(selected)}`);checks={};x.checks.forEach(c=>checks[c.task_id+"-"+c.person]=!!c.done);renderTasks()}
+async function loadDay(){const x=await api(`/api/rooms/${roomId}/day/${iso(selected)}`);checks={};x.checks.forEach(c=>checks[c.task_id+"-"+c.person]=!!c.done);renderTasks();await refreshCalendarHistory()}
+async function refreshCalendarHistory(){try{const x=await api(`/api/rooms/${roomId}/history`);const byDate={};x.history.forEach(r=>byDate[r.date]=r.done);document.querySelectorAll(".dot[data-date]").forEach(dot=>{dot.textContent=byDate[dot.dataset.date]?"•":""})}catch(e){}}
+function startPolling(){if(pollTimer)clearInterval(pollTimer);pollTimer=setInterval(async()=>{if(pollBusy||document.hidden)return;pollBusy=true;try{const x=await api(`/api/rooms/${roomId}/day/${iso(selected)}`);const next={};x.checks.forEach(c=>next[c.task_id+"-"+c.person]=!!c.done);if(JSON.stringify(next)!==JSON.stringify(checks)){checks=next;renderTasks()}await refreshCalendarHistory()}catch(e){}finally{pollBusy=false}},2000)}
 function renderTasks(){
  const el=$("tasks");el.innerHTML="";
  if(!room.tasks.length){el.innerHTML='<div class="empty muted">No tasks yet.</div>';return}

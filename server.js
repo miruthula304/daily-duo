@@ -130,7 +130,7 @@ app.patch("/api/rooms/:id", (req,res) => {
   res.json({ok:true});
 });
 
-app.get("*", (req,res) => res.sendFile(path.join(__dirname,"public","index.html")));
+app.get("/{*splat}", (req,res) => res.sendFile(path.join(__dirname,"public","index.html")));
 
 const port=process.env.PORT || 3000;
 app.listen(port,()=>console.log(`Daily Duo running on http://localhost:${port}`));
